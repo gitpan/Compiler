@@ -10,10 +10,10 @@ require DynaLoader;
 require Exporter;
 @ISA = qw(Exporter DynaLoader);
 @EXPORT_OK = qw(byteload_fh byteload_string minus_c ppname
-		class peekop cast_I32 ad cstring cchar
+		class peekop cast_I32 ad cstring cchar hash
 		main_root main_start main_cv svref_2object
 		walkoptree walkoptree_exec walksymtable
-		comppadlist sv_undef compile_stats);
+		comppadlist sv_undef compile_stats timing_info);
 
 use strict;
 @B::SV::ISA = 'B::OBJECT';
@@ -59,7 +59,7 @@ sub debug {
 
 # sub OPf_KIDS;
 # add to .xs for perl5.002
-sub OPf_KIDS { 4 }
+sub OPf_KIDS () { 4 }
 
 sub ad {
     my $obj = shift;
@@ -97,6 +97,13 @@ sub compile_stats {
     return "Total number of OPs processed: $op_count\n";
 }
 
+sub timing_info {
+    my ($sec, $min, $hr) = localtime;
+    my ($user, $sys) = times;
+    sprintf("%02d:%02d:%02d user=$user sys=$sys",
+	    $hr, $min, $sec, $user, $sys);
+}
+
 my %symtable;
 sub savesym {
     my ($obj, $value) = @_;
@@ -122,7 +129,7 @@ sub walkoptree_exec {
 	savesym($op, sprintf("%s (0x%lx)", class($op), ad($op)));
 	$op->$method($level);
 	$ppname = $op->ppaddr;
-	if ($ppname =~ /^pp_(or|and|mapwhile|grepwhile)$/) {
+	if ($ppname =~ /^pp_(or|and|mapwhile|grepwhile|entertry)$/) {
 	    print $prefix, uc($1), " => {\n";
 	    walkoptree_exec($op->other, $method, $level + 1);
 	    print $prefix, "}\n";

@@ -1,9 +1,8 @@
 * Fixes
 
+CC backend: goto and s//e
 Version checking
-Save contents of non-empty hashes
-XSUB handling (both static and dynamic)
-Avoid saving all the "bootstrap" subs for statically linked XSUB modules
+improve XSUB handling (both static and dynamic)
 sv_magic can do SvREFCNT_inc(obj) which messes up precalculated refcounts
 allocation of XPV[INAHC]V structures needs fixing: Perl tries to free
 them whereas the compiler expects them to be linked to a xpv[inahc]v_root
@@ -11,36 +10,28 @@ list the same as X[IPR]V structures.
 ref counts
 perl_parse replacement
 fix cstring for long strings
-shared globs (GV != EGV) for C backend
-reload at runtime any .so that was used at compile-time
-fix C block ends in B:CC for disconnected basic block trees
 compile-time initialisation of AvARRAYs
 signed/unsigned problems with NV (and IV?) initialisation and elsewhere?
 CvOUTSIDE for ordinary subs
 DATA filehandle for standalone Bytecode program (easy)
 DATA filehandle for multiple bytecode-compiled modules (harder)
 DATA filehandle for C-compiled program (yet harder)
-Integrate C backend fixes into CC
 
 * Features
 
+type checking
 compile time v. runtime initialisation
 save PMOPs in compiled form
-write C code to call pp_* directly
-inline appropriate pp_*
 selection of what to dump
-snazzy command line invocation
 options for cutting out line info etc.
 comment output
 shared constants
 module dependencies
 
 * Optimisations
-filter out null ops
 collapse LISTOPs to UNOPs or BASEOPs
 compile-time qw(), constant subs
 global analysis of variables, type hints etc.
-copy-on-write and copy-on-grow SVs (may need extra tweaks to perl)
-CSE?
 demand-loaded bytecode (leader of each basic block replaced by an op
 which loads in bytecode for its block)
+fast sub calls for CC backend

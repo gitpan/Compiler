@@ -1,14 +1,37 @@
 package B::Terse;
 use strict;
 use B qw(peekop class ad walkoptree walkoptree_exec
-	 main_start main_root cstring);
+	 main_start main_root cstring svref_2object);
+use B::Asmdata qw(@specialsv_name);
+
+sub terse {
+    my ($order, $cvref) = @_;
+    my $cv = svref_2object($cvref);
+    if ($order eq "exec") {
+	walkoptree_exec($cv->START, "terse");
+    } else {
+	walkoptree($cv->ROOT, "terse");
+    }
+}
 
 sub compile {
     my $order = shift;
-    if ($order eq "exec") {
-	return sub { walkoptree_exec(main_start, "terse") }
+    my @options = @_;
+    if (@options) {
+	return sub {
+	    my $objname;
+	    foreach $objname (@options) {
+		$objname = "main::$objname" unless $objname =~ /::/;
+		eval "terse(\$order, \\&$objname)";
+		die "terse($order, \\&$objname) failed: $@" if $@;
+	    }
+	}
     } else {
-	return sub { walkoptree(main_root, "terse") }
+	if ($order eq "exec") {
+	    return sub { walkoptree_exec(main_start, "terse") }
+	} else {
+	    return sub { walkoptree(main_root, "terse") }
+	}
     }
 }
 
@@ -19,7 +42,9 @@ sub indent {
 
 sub B::OP::terse {
     my ($op, $level) = @_;
-    print indent($level), peekop($op), "\n";
+    my $targ = $op->targ;
+    $targ = ($targ > 0) ? " [$targ]" : "";
+    print indent($level), peekop($op), $targ, "\n";
 }
 
 sub B::SVOP::terse {
@@ -98,4 +123,10 @@ sub B::NULL::terse {
     printf "%s (0x%lx)\n", class($sv), ad($sv);
 }
     
+sub B::SPECIAL::terse {
+    my ($sv, $level) = @_;
+    print indent($level);
+    printf "%s #%d %s\n", class($sv), $$sv, $specialsv_name[$$sv];
+}
+
 1;

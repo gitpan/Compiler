@@ -3,6 +3,7 @@ use Config;
 
 WriteMakefile(
     NAME	=> "B",
+    VERSION	=> "a2",
     MAP_TARGET	=> "bperl",
     OBJECT	=> "B.o ccop.o byterun.o",
     depend	=> {

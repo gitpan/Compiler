@@ -36,7 +36,11 @@ main(int argc, char **argv, char **env)
 
     PERL_SYS_INIT(&argc,&argv);
  
+#if PATCHLEVEL > 3 || (PATCHLEVEL == 3 && SUBVERSION >= 1)
+    perl_init_i18nl10n(1);
+#else
     perl_init_i18nl14n(1);
+#endif
 
     if (!do_undump) {
 	my_perl = perl_alloc();

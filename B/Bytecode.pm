@@ -22,11 +22,11 @@ for ($i = 0; $i < @optype; $i++) {
 
 # Following is SVf_POK|SVp_POK
 # XXX Shouldn't be hardwired
-sub POK { 0x04040000 }
+sub POK () { 0x04040000 }
 
 # Following is SVf_IOK|SVp_OK
 # XXX Shouldn't be hardwired
-sub IOK { 0x01010000 }
+sub IOK () { 0x01010000 }
 
 my ($verbose, $module_only, $no_assemble, $debug_cv);
 my $assembler_pid;

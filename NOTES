@@ -5,6 +5,15 @@ C backend invocation
 	-ofilename	Output to filename instead of STDOUT
 	-v		Verbose (currently gives a few compilation statistics)
 	--		Force end of options
+	-uPackname	Force apparently unused subs from package Packname to
+			be compiled. This allows programs to use eval "foo()"
+			even when sub foo is never seen to be used at compile
+			time. The down side is that any subs which really are
+			never used also have code generated. This option is
+			necessary, for example, if you have a signal handler
+			foo which you initialise with $SIG{BAR} = "foo".
+			A better fix, though, is just to change it to
+			$SIG{BAR} = \&foo. You can have multiple -u options.
 	-D		Debug options (concat or separate flags like perl -D)
 		o	OPs, prints each OP as it's processed
 		c	COPs, prints COPs as processed (incl. file & line num)
@@ -22,6 +31,58 @@ Examples
 	perl cc_harness -o foo foo.c
 
 	perl -MO=C,-v,-DcA bar.pl > /dev/null
+
+CC backend invocation
+	If there are any non-option arguments, they are taken to be names of
+	subs to be saved. Without extra arguments, it saves the main program.
+	-ofilename	Output to filename instead of STDOUT
+	--		Force end of options
+	-uPackname	Force apparently unused subs from package Packname to
+			be compiled. This allows programs to use eval "foo()"
+			even when sub foo is never seen to be used at compile
+			time. The down side is that any subs which really are
+			never used also have code generated. This option is
+			necessary, for example, if you have a signal handler
+			foo which you initialise with $SIG{BAR} = "foo".
+			A better fix, though, is just to change it to
+			$SIG{BAR} = \&foo. You can have multiple -u options.
+	-D		Debug options (concat or separate flags like perl -D)
+		r	Writes debugging output to STDERR just as it's about
+			to write to the program's runtime (otherwise writes
+			debugging info as comments in its C output).
+		O	Outputs each OP as it's compiled
+		s	Outputs the contents of the shadow stack at each OP
+		p	Outputs the contents of the shadow pad of lexicals as
+			it's loaded for each sub or the main program.
+		q	Outputs the name of each fake PP function in the queue
+			as it's about to processes.
+		l	Output the filename and line number of each original
+			line of Perl code as it's processed (pp_nextstate).
+		t	Outputs timing information of compilation stages
+	-f		Force optimisations on or off one at a time.
+		[
+		cog	Copy-on-grow: PVs declared and initialised statically
+		no-cog	No copy-on-grow
+		These two not in CC yet.
+		]
+		freetmps-each-bblock	Delays FREETMPS from the end of each
+					statement to the end of the each basic
+					block.
+		freetmps-each-loop	Delays FREETMPS from the end of each
+					statement to the end of the group of
+					basic blocks forming a loop. At most
+					one of the freetmps-each-* options can
+					be used.
+		omit-taint		Omits generating code for handling
+					perl's tainting mechanism.
+	-On		Optimisation level (n = 0, 1, 2, ...). -O means -O1.
+			Currently, -O1 sets -ffreetmps-each-bblock and -O2
+			sets -ffreetmps-each-loop.
+
+Example
+	perl -MO=CC,-O2,-ofoo.c foo.pl
+	perl cc_harness -o foo foo.c
+
 
 Bytecode backend invocation
 

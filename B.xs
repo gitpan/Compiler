@@ -353,6 +353,20 @@ ppname(opnum)
 	if (opnum >= 0 && opnum < sizeof(ppnames)/sizeof(char*))
 	    sv_setpv(ST(0), ppnames[opnum]);
 
+void
+hash(sv)
+	SV *	sv
+    CODE:
+	char *s;
+	STRLEN len;
+	U32 hash = 0;
+	char hexhash[11]; /* must fit "0xffffffff" plus trailing \0 */
+	s = SvPV(sv, len);
+	while (len--)
+	    hash = hash * 33 + *s++;
+	sprintf(hexhash, "0x%x", hash);
+	ST(0) = sv_2mortal(newSVpv(hexhash, 0));
+
 #define cast_I32(foo) (I32)foo
 IV
 cast_I32(i)
@@ -636,7 +650,7 @@ packiv(sv)
 	    U32 wp[2];
 	    IV iv = SvIV(sv);
 	    /*
-	     * The following way of spelling 32 is to stop compiler on
+	     * The following way of spelling 32 is to stop compilers on
 	     * 32-bit architectures from moaning about the shift count
 	     * being >= the width of the type. Such architectures don't
 	     * reach this code anyway (unless sizeof(IV) > 8 but then
@@ -949,6 +963,19 @@ B::CV
 CvOUTSIDE(cv)
 	B::CV	cv
 
+void
+CvXSUB(cv)
+	B::CV	cv
+    CODE:
+	ST(0) = sv_2mortal(newSViv((IV)CvXSUB(cv)));
+
+
+void
+CvXSUBANY(cv)
+	B::CV	cv
+    CODE:
+	ST(0) = sv_2mortal(newSViv(CvXSUBANY(cv).any_iv));
+
 MODULE = B	PACKAGE = B::HV		PREFIX = Hv
 
 STRLEN
@@ -974,3 +1001,19 @@ HvNAME(hv)
 B::PMOP
 HvPMROOT(hv)
 	B::HV	hv
+
+void
+HvARRAY(hv)
+	B::HV	hv
+    PPCODE:
+	if (HvKEYS(hv) > 0) {
+	    SV *sv;
+	    char *key;
+	    I32 len;
+	    (void)hv_iterinit(hv);
+	    EXTEND(sp, HvKEYS(hv) * 2);
+	    while (sv = hv_iternextsv(hv, &key, &len)) {
+		PUSHs(newSVpv(key, len));
+		PUSHs(make_sv_object(sv_newmortal(), sv));
+	    }
+	}
