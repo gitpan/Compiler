@@ -364,7 +364,7 @@ sub B::PV::bytecode {
 sub B::IV::bytecode {
     my $sv = shift;
     return if saved($sv);
-    my $iv = $sv->IV;
+    my $iv = $sv->IVX;
     $sv->B::SV::bytecode;
     printf "%s $iv\n", $sv->needs64bits ? "xiv64" : "xiv32";
 }
@@ -373,7 +373,7 @@ sub B::NV::bytecode {
     my $sv = shift;
     return if saved($sv);
     $sv->B::SV::bytecode;
-    printf "xnv %s\n", $sv->NV;
+    printf "xnv %s\n", $sv->NVX;
 }
 
 sub B::RV::bytecode {
@@ -387,7 +387,7 @@ sub B::RV::bytecode {
 sub B::PVIV::bytecode {
     my $sv = shift;
     return if saved($sv);
-    my $iv = $sv->IV;
+    my $iv = $sv->IVX;
     $sv->B::PV::bytecode;
     printf "%s $iv\n", $sv->needs64bits ? "xiv64" : "xiv32";
 }
@@ -408,7 +408,7 @@ sub B::PVNV::bytecode {
     } else {
 	my $pv = $sv->PV;
 	$sv->B::IV::bytecode;
-	printf "xnv %s\n", $sv->NV;
+	printf "xnv %s\n", $sv->NVX;
 	if ($flag == 1) {
 	    $pv .= "\0" . $sv->TABLE;
 	    printf "newpv %s\npv_cur %d\nxpv\n", pvstring($pv),length($pv)-257;

@@ -104,6 +104,18 @@ sub B::CONDOP::mark_if_leader {
     mark_leader($op->false);
 }
 
+sub B::PMOP::mark_if_leader {
+    my $op = shift;
+    if ($op->ppaddr ne "pp_pushre") {
+	my $replroot = $op->pmreplroot;
+	if (ad($replroot)) {
+	    mark_leader($replroot);
+	    mark_leader($op->next);
+	    mark_leader($op->pmreplstart);
+	}
+    }
+}
+
 # PMOP stuff omitted
 
 sub compile {

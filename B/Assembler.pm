@@ -69,7 +69,7 @@ sub B::Asmdata::PUT_strconst {
 
 sub B::Asmdata::PUT_pvcontents {
     my $arg = shift;
-    error "extraneous argument: $arg" if length($arg);
+    error "extraneous argument: $arg" if defined $arg;
     return "";
 }
 sub B::Asmdata::PUT_PV {
@@ -90,7 +90,7 @@ sub B::Asmdata::PUT_comment {
 sub B::Asmdata::PUT_double { sprintf("%s\0", $_[0]) }
 sub B::Asmdata::PUT_none {
     my $arg = shift;
-    error "extraneous argument: $arg" if length($arg);
+    error "extraneous argument: $arg" if defined $arg;
     return "";
 }
 sub B::Asmdata::PUT_op_tr_array {
@@ -146,18 +146,20 @@ sub parse_statement {
 	    (.*)	# The argument is all the rest (newlines included).
 	)?$	# anchor at end-of-line
     };	
-    if ($arg =~ s/^0x(?=[0-9a-fA-F]+$)//) {
-	$arg = hex($arg);
-    } elsif ($arg =~ s/^0(?=[0-7]+$)//) {
-	$arg = oct($arg);
-    } elsif ($arg =~ /^pp_/) {
-	$arg =~ s/\s*$//; # strip trailing whitespace
-	my $opnum = $opnumber{$arg};
-	if (defined($opnum)) {
-	    $arg = $opnum;
-	} else {
-	    error qq(No such op type "$arg");
-	    $arg = 0;
+    if (defined($arg)) {
+	if ($arg =~ s/^0x(?=[0-9a-fA-F]+$)//) {
+	    $arg = hex($arg);
+	} elsif ($arg =~ s/^0(?=[0-7]+$)//) {
+	    $arg = oct($arg);
+	} elsif ($arg =~ /^pp_/) {
+	    $arg =~ s/\s*$//; # strip trailing whitespace
+	    my $opnum = $opnumber{$arg};
+	    if (defined($opnum)) {
+		$arg = $opnum;
+	    } else {
+		error qq(No such op type "$arg");
+		$arg = 0;
+	    }
 	}
     }
     return ($insn, $arg);

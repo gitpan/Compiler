@@ -1,6 +1,6 @@
 * Fixes
 
-CC backend: goto and s//e
+CC backend: goto, sort with non-default comparison. last for non-loop blocks.
 Version checking
 improve XSUB handling (both static and dynamic)
 sv_magic can do SvREFCNT_inc(obj) which messes up precalculated refcounts

@@ -49,6 +49,11 @@ use strict;
 
 @B::SPECIAL::ISA = 'B::OBJECT';
 
+{
+    # Stop "-w" from complaining about the lack of a real B::OBJECT class
+    package B::OBJECT;
+}
+
 my $debug;
 my $op_count = 0;
 
@@ -152,6 +157,12 @@ sub walkoptree_exec {
 	    print $prefix, "}\n";
 	    $op = $op->false;
 	    redo;
+	} elsif ($ppname eq "pp_range") {
+	    print $prefix, "TRUE => {\n";
+	    walkoptree_exec($op->true, $method, $level + 1);
+	    print $prefix, "}\n", $prefix, "FALSE => {\n";
+	    walkoptree_exec($op->false, $method, $level + 1);
+	    print $prefix, "}\n";
 	} elsif ($ppname eq "pp_enterloop") {
 	    print $prefix, "REDO => {\n";
 	    walkoptree_exec($op->redoop, $method, $level + 1);

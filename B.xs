@@ -634,9 +634,13 @@ IV
 SvIV(sv)
 	B::IV	sv
 
+IV
+SvIVX(sv)
+	B::IV	sv
+
 MODULE = B	PACKAGE = B::IV
 
-#define needs64bits(sv) ((I32)SvIV(sv) != SvIV(sv))
+#define needs64bits(sv) ((I32)SvIVX(sv) != SvIVX(sv))
 
 int
 needs64bits(sv)
@@ -648,7 +652,7 @@ packiv(sv)
     CODE:
 	if (sizeof(IV) == 8) {
 	    U32 wp[2];
-	    IV iv = SvIV(sv);
+	    IV iv = SvIVX(sv);
 	    /*
 	     * The following way of spelling 32 is to stop compilers on
 	     * 32-bit architectures from moaning about the shift count
@@ -660,7 +664,7 @@ packiv(sv)
 	    wp[1] = htonl(iv & 0xffffffff);
 	    ST(0) = sv_2mortal(newSVpv((char *)wp, 8));
 	} else {
-	    U32 w = htonl((U32)SvIV(sv));
+	    U32 w = htonl((U32)SvIVX(sv));
 	    ST(0) = sv_2mortal(newSVpv((char *)&w, 4));
 	}
 
@@ -668,6 +672,10 @@ MODULE = B	PACKAGE = B::NV		PREFIX = Sv
 
 double
 SvNV(sv)
+	B::NV	sv
+
+double
+SvNVX(sv)
 	B::NV	sv
 
 MODULE = B	PACKAGE = B::RV		PREFIX = Sv
@@ -734,7 +742,8 @@ MgPTR(mg)
 	B::MAGIC	mg
     CODE:
 	ST(0) = sv_newmortal();
-	sv_setpvn(ST(0), mg->mg_ptr, mg->mg_len);
+	if (mg->mg_ptr)
+	    sv_setpvn(ST(0), mg->mg_ptr, mg->mg_len);
 
 MODULE = B	PACKAGE = B::PVLV	PREFIX = Lv
 

@@ -9,7 +9,7 @@ package B::C;
 use Exporter ();
 @ISA = qw(Exporter);
 @EXPORT_OK = qw(push_decl init_init push_init output_all output_boilerplate
-	       output_main set_callback save_unused_subs);
+	       output_main set_callback save_unused_subs objsym);
 
 use B qw(minus_c sv_undef walkoptree walksymtable main_root main_start
 	 ad peekop class cstring cchar svref_2object compile_stats
@@ -24,7 +24,6 @@ my $hv_index = 0;
 my $gv_index = 0;
 my $re_index = 0;
 my $pv_index = 0;
-my $repl_index = 0;
 my $anonsub_index = 0;
 my (@binop_list, @condop_list, @cop_list, @cvop_list, @decl_list,
     @gvop_list, @listop_list, @logop_list, @loop_list, @op_list, @pmop_list,
@@ -140,20 +139,20 @@ sub B::FAKEOP::new {
 
 sub B::FAKEOP::save {
     my ($op, $level) = @_;
-    my $type = $op->{type};
     push(@op_list,
 	 sprintf("%s, %s, %s, %u, %u, %u, 0x%x, 0x%x",
-		 $op->{next}, $op->{sibling}, $op->{ppaddr}, $op->{targ},
-		 $type, $op_seq, $op->{flags}, $op->{private}));
+		 $op->next, $op->sibling, $op->ppaddr, $op->targ,
+		 $op->type, $op_seq, $op->flags, $op->private));
     return "&op_list[$#op_list]";
 }
 
-sub B::FAKEOP::next { $_[0]->{next} }
-sub B::FAKEOP::sibling { $_[0]->{sibling} }
-sub B::FAKEOP::ppaddr { $_[0]->{ppaddr} }
-sub B::FAKEOP::targ { $_[0]->{targ} }
-sub B::FAKEOP::flags { $_[0]->{flags} }
-sub B::FAKEOP::private { $_[0]->{private} }
+sub B::FAKEOP::next { $_[0]->{"next"} || 0 }
+sub B::FAKEOP::type { $_[0]->{type} || 0}
+sub B::FAKEOP::sibling { $_[0]->{sibling} || 0 }
+sub B::FAKEOP::ppaddr { $_[0]->{ppaddr} || 0 }
+sub B::FAKEOP::targ { $_[0]->{targ} || 0 }
+sub B::FAKEOP::flags { $_[0]->{flags} || 0 }
+sub B::FAKEOP::private { $_[0]->{private} || 0 }
 
 sub B::UNOP::save {
     my ($op, $level) = @_;
@@ -285,9 +284,7 @@ sub B::PMOP::save {
 #	    warn "PMOP::save saving a pp_pushre with GV $gvsym\n"; # debug
 	    $replrootfield = 0;
 	} else {
-	    $replstartfield = saveoptree("repl_$repl_index",
-					 $replroot, $replstart);
-	    $repl_index++;
+	    $replstartfield = saveoptree("*ignore*", $replroot, $replstart);
 	}
     }
     # pmnext handling is broken in perl itself, I think. Bad op_pmnext
@@ -327,11 +324,17 @@ sub B::SPECIAL::save {
     return $sym;
 }
 
+sub B::OBJECT::save {}
+
 sub B::NULL::save {
     my ($sv) = @_;
     my $sym = objsym($sv);
     return $sym if defined $sym;
 #   warn "Saving SVt_NULL SV\n"; # debug
+    # debug
+    #if ($$sv == 0) {
+    #	warn "NULL::save for sv = 0 called from @{[(caller(1))[3]]}\n";
+    #}
     push(@sv_list, sprintf("0, %u, 0x%x", $sv->REFCNT + 1, $sv->FLAGS));
     return savesym($sv, "&sv_list[$#sv_list]");
 }
@@ -340,7 +343,7 @@ sub B::IV::save {
     my ($sv) = @_;
     my $sym = objsym($sv);
     return $sym if defined $sym;
-    push(@xpviv_list, sprintf("0, 0, 0, %d", $sv->IV));
+    push(@xpviv_list, sprintf("0, 0, 0, %d", $sv->IVX));
     push(@sv_list, sprintf("&xpviv_list[$#xpviv_list], %lu, 0x%x",
 			   $sv->REFCNT + 1, $sv->FLAGS));
     return savesym($sv, "&sv_list[$#sv_list]");
@@ -350,7 +353,7 @@ sub B::NV::save {
     my ($sv) = @_;
     my $sym = objsym($sv);
     return $sym if defined $sym;
-    push(@xpvnv_list, sprintf("0, 0, 0, %d, %s", $sv->IV, $sv->NV));
+    push(@xpvnv_list, sprintf("0, 0, 0, %d, %s", $sv->IVX, $sv->NVX));
     push(@sv_list, sprintf("&xpvnv_list[$#xpvnv_list], %lu, 0x%x",
 			   $sv->REFCNT + 1, $sv->FLAGS));
     return savesym($sv, "&sv_list[$#sv_list]");
@@ -365,7 +368,7 @@ sub B::PVLV::save {
     my ($pvsym, $pvmax) = savepv($pv);
     my ($lvtarg, $lvtarg_sym);
     push(@xpvlv_list, sprintf("%s, %u, %u, %d, %g, 0, 0, %u, %u, 0, %s",
-			      $pvsym, $len, $pvmax, $sv->IV, $sv->NV, 
+			      $pvsym, $len, $pvmax, $sv->IVX, $sv->NVX, 
 			      $sv->TARGOFF, $sv->TARGLEN, cchar($sv->TYPE)));
       
     push(@sv_list, sprintf("&xpvlv_list[$#xpvlv_list], %lu, 0x%x",
@@ -385,7 +388,7 @@ sub B::PVIV::save {
     my $pv = $sv->PV;
     my $len = length($pv);
     my ($pvsym, $pvmax) = savepv($pv);
-    push(@xpviv_list, sprintf("%s, %u, %u, %d", $pvsym, $len, $pvmax,$sv->IV));
+    push(@xpviv_list, sprintf("%s, %u, %u, %d", $pvsym, $len,$pvmax,$sv->IVX));
     push(@sv_list, sprintf("&xpviv_list[$#xpviv_list], %u, 0x%x",
 			   $sv->REFCNT + 1, $sv->FLAGS));
     if (!$pv_copy_on_grow) {
@@ -403,7 +406,7 @@ sub B::PVNV::save {
     my $len = length($pv);
     my ($pvsym, $pvmax) = savepv($pv);
     push(@xpvnv_list, sprintf("%s, %u, %u, %d, %s",
-			      $pvsym, $len, $pvmax, $sv->IV, $sv->NV));
+			      $pvsym, $len, $pvmax, $sv->IVX, $sv->NVX));
     push(@sv_list, sprintf("&xpvnv_list[$#xpvnv_list], %lu, 0x%x",
 			   $sv->REFCNT + 1, $sv->FLAGS));
     if (!$pv_copy_on_grow) {
@@ -420,7 +423,7 @@ sub B::BM::save {
     my $pv = $sv->PV . "\0" . $sv->TABLE;
     my $len = length($pv);
     push(@xpvbm_list, sprintf("0, %u, %u, %d, %s, 0, 0, %d, %u, 0x%x",
-			      $len, $len + 258, $sv->IV, $sv->NV,
+			      $len, $len + 258, $sv->IVX, $sv->NVX,
 			      $sv->USEFUL, $sv->PREVIOUS, $sv->RARE));
     push(@sv_list, sprintf("&xpvbm_list[$#xpvbm_list], %lu, 0x%x",
 			   $sv->REFCNT + 1, $sv->FLAGS));
@@ -457,7 +460,7 @@ sub B::PVMG::save {
     my $len = length($pv);
     my ($pvsym, $pvmax) = savepv($pv);
     push(@xpvmg_list, sprintf("%s, %u, %u, %d, %s, 0, 0",
-			      $pvsym, $len, $pvmax, $sv->IV, $sv->NV));
+			      $pvsym, $len, $pvmax, $sv->IVX, $sv->NVX));
     push(@sv_list, sprintf("&xpvmg_list[$#xpvmg_list], %lu, 0x%x",
 			   $sv->REFCNT + 1, $sv->FLAGS));
     if (!$pv_copy_on_grow) {
@@ -485,14 +488,14 @@ sub B::PVMG::save_magic {
 	$type = $mg->TYPE;
 	$obj = $mg->OBJ;
 	$ptr = $mg->PTR;
+	my $len = defined($ptr) ? length($ptr) : 0;
 	if ($debug_mg) {
 	    warn sprintf("magic %s (0x%x), obj %s (0x%x), type %s, ptr %s\n",
 			 class($sv), ad($sv), class($obj), ad($obj),
 			 cchar($type), cstring($ptr));
 	}
 	push_init(sprintf("sv_magic((SV*)sym_%x, (SV*)sym_%x, %s, %s, %d);",
-			  ad($sv), ad($obj), cchar($type), cstring($ptr),
-			  length($ptr)));
+			  ad($sv), ad($obj), cchar($type),cstring($ptr),$len));
     }
 }
 
@@ -565,7 +568,7 @@ sub B::CV::save {
     $xpvcv_list[$xpvcv_ix] = sprintf(
 	"%s, %u, 0, %d, %s, 0, Nullhv, Nullhv, %s, sym_%lx, $xsub, $xsubany,".
 	" Nullgv, Nullgv, %d, sym_%lx, (CV*)sym_%lx, 0",
-	cstring($pv), length($pv), $cv->IV, $cv->NV, $startfield,
+	cstring($pv), length($pv), $cv->IVX, $cv->NVX, $startfield,
 	ad($cv->ROOT), $cv->DEPTH, ad($padlist), ad($cv->OUTSIDE));
     if (ad($gv)) {
 	$gv->save;
@@ -780,7 +783,7 @@ sub B::IO::save {
     push(@xpvio_list,
 	 sprintf("0, %u, %u, %d, %s, 0, 0, 0, 0, 0, %d, %d, %d, %d, %s, "
 		 ."Nullgv, %s, Nullgv, %s, Nullgv, %d, %s, 0x%x",
-		 $len, $len+1, $io->IV, $io->NV,
+		 $len, $len+1, $io->IVX, $io->NVX,
 		 $io->LINES, $io->PAGE, $io->PAGE_LEN, $io->LINES_LEFT, 
 		 cstring($io->TOP_NAME), cstring($io->FMT_NAME), 
 		 cstring($io->BOTTOM_NAME), $io->SUBPROCESS,

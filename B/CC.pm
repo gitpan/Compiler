@@ -9,7 +9,7 @@ package B::CC;
 use strict;
 use B qw(main_start main_root class comppadlist peekop svref_2object ad
 	timing_info);
-use B::C qw(push_decl init_init push_init save_unused_subs
+use B::C qw(push_decl init_init push_init save_unused_subs objsym
 	    output_all output_boilerplate output_main);
 use B::Bblock qw(find_leaders);
 use B::Stackobj qw(:types :flags);
@@ -26,6 +26,7 @@ sub OPpASSIGN_BACKWARDS () { 64 }
 sub OPpLVAL_INTRO () { 128 }
 sub OPpDEREF_AV () { 32 }
 sub OPpDEREF_HV () { 64 }
+sub OPpFLIP_LINENUM () { 64 }
 sub G_ARRAY () { 1 }
 # cop.h
 sub CXt_NULL () { 0 }
@@ -49,7 +50,7 @@ my @stack;		# shadows perl's stack when contents are known.
 			# Values are objects derived from class B::Stackobj
 my @pad;		# Lexicals in current pad as Stackobj-derived objects
 my @padlist;		# Copy of current padlist so PMOP repl code can find it
-my @cxstack = ();	# Shadows the (compile-time) cxstack for next,last,redo
+my @cxstack;		# Shadows the (compile-time) cxstack for next,last,redo
 my $jmpbuf_ix = 0;	# Next free index for dynamically allocated jmpbufs
 my %constobj;		# OP_CONST constants as Stackobj-derived objects
 			# keyed by ad($sv).
@@ -62,6 +63,13 @@ my $errors = 0;		# Number of errors encountered
 my %skip_stack;		# Hash of PP names which don't need write_back_stack
 my %skip_lexicals;	# Hash of PP names which don't need write_back_lexicals
 my %skip_invalidate;	# Hash of PP names which don't need invalidate_lexicals
+my %ignore_op;		# Hash of ops which do nothing except returning op_next
+
+BEGIN {
+    foreach (qw(pp_scalar pp_regcmaybe pp_lineseq pp_scope pp_null)) {
+	$ignore_op{$_} = 1;
+    }
+}
 
 my @unused_sub_packages; # list of packages (given by -u options) to search
 			 # explicitly and save every sub we find there, even
@@ -69,7 +77,7 @@ my @unused_sub_packages; # list of packages (given by -u options) to search
 			 # an eval "" or from a $SIG{FOO} = "bar").
 
 my ($module_name);
-my ($debug_op, $debug_stack, $debug_pad, $debug_runtime,
+my ($debug_op, $debug_stack, $debug_cxstack, $debug_pad, $debug_runtime,
     $debug_shadow, $debug_queue, $debug_lineno, $debug_timings);
 
 # Optimisation options. On the command line, use hyphens instead of
@@ -165,8 +173,12 @@ sub cc_queue {
     my ($name, $root, $start, @pl) = @_;
     debug "cc_queue: name $name, root $root, start $start, padlist (@pl)\n"
 	if $debug_queue;
-    my $fakeop = new B::FAKEOP (next => 0, sibling => 0, ppaddr => $name);
-    push(@cc_todo, [$name, $root, $start, (@pl ? @pl : @padlist)]);
+    if ($name eq "*ignore*") {
+	$name = 0;
+    } else {
+	push(@cc_todo, [$name, $root, $start, (@pl ? @pl : @padlist)]);
+    }
+    my $fakeop = new B::FAKEOP ("next" => 0, sibling => 0, ppaddr => $name);
     $start = $fakeop->save;
     debug "cc_queue: name $name returns $start\n" if $debug_queue;
     return $start;
@@ -200,7 +212,7 @@ sub pop_bool {
 }
 
 sub write_back_lexicals {
-    my $avoid = shift;
+    my $avoid = shift || 0;
     debug "write_back_lexicals($avoid) called from @{[(caller(1))[3]]}\n"
 	if $debug_shadow;
     my $lex;
@@ -221,7 +233,7 @@ sub write_back_stack {
 }
 
 sub invalidate_lexicals {
-    my $avoid = shift;
+    my $avoid = shift || 0;
     debug "invalidate_lexicals($avoid) called from @{[(caller(1))[3]]}\n"
 	if $debug_shadow;
     my $lex;
@@ -322,19 +334,21 @@ my $curcop = new B::Shadow (sub {
 #
 sub dopoptoloop {
     my $cxix = $#cxstack;
-    while ($cxix && $cxstack[$cxix]->{type} != CXt_LOOP) {
+    while ($cxix >= 0 && $cxstack[$cxix]->{type} != CXt_LOOP) {
 	$cxix--;
     }
+    debug "dopoptoloop: returning $cxix" if $debug_cxstack;
     return $cxix;
 }
 
 sub dopoptolabel {
     my $label = shift;
     my $cxix = $#cxstack;
-    while ($cxix && $cxstack[$cxix]->{type} != CXt_LOOP
+    while ($cxix >= 0 && $cxstack[$cxix]->{type} != CXt_LOOP
 	   && $cxstack[$cxix]->{label} ne $label) {
 	$cxix--;
     }
+    debug "dopoptolabel: returning $cxix" if $debug_cxstack;
     return $cxix;
 }
 
@@ -346,7 +360,7 @@ sub error {
     if (@_) {
 	warn sprintf("%s:%d: $format\n", $file, $line, @_);
     } else {
-	warn sprintf("%s:%d: %s\n", $format);
+	warn sprintf("%s:%d: %s\n", $file, $line, $format);
     }
 }
 
@@ -377,7 +391,8 @@ sub load_pad {
 	my $type = T_UNKNOWN;
 	my $flags = 0;
 	my $name = "tmp$ix";
-	if (!defined($namesv) || class($namesv) eq "SPECIAL") {
+	my $class = class($namesv);
+	if (!defined($namesv) || $class eq "SPECIAL") {
 	    # temporaries have &sv_undef instead of a PVNV for a name
 	    $flags = VALID_SV|TEMPORARY|REGISTER;
 	} else {
@@ -514,6 +529,7 @@ sub pp_cond_expr {
     return $op->true;
 }
 	    
+
 sub pp_padsv {
     my $op = shift;
     my $ix = $op->targ;
@@ -1022,20 +1038,84 @@ sub nyi {
     return default_pp($op);
 }
 
-sub pp_flip { nyi(shift) }
-sub pp_flop { nyi(shift) }
+sub pp_range {
+    my $op = shift;
+    my $flags = $op->flags;
+    if (!($flags & OPf_KNOW)) {
+	error("context of range unknown at compile-time");
+    }
+    write_back_lexicals();
+    write_back_stack();
+    if (!($flags & OPf_LIST)) {
+	# We need to save our UNOP structure since pp_flop uses
+	# it to find and adjust out targ. We don't need it ourselves.
+	$op->save;
+	runtime sprintf("if (SvTRUE(curpad[%d])) goto %s;",
+			$op->targ, label($op->false));
+	unshift(@bblock_todo, $op->false);
+    }
+    return $op->true;
+}
+
+sub pp_flip {
+    my $op = shift;
+    my $flags = $op->flags;
+    if (!($flags & OPf_KNOW)) {
+	error("context of flip unknown at compile-time");
+    }
+    if ($flags & OPf_LIST) {
+	return $op->first->false;
+    }
+    write_back_lexicals();
+    write_back_stack();
+    # We need to save our UNOP structure since pp_flop uses
+    # it to find and adjust out targ. We don't need it ourselves.
+    $op->save;
+    my $ix = $op->targ;
+    my $rangeix = $op->first->targ;
+    runtime(($op->private & OPpFLIP_LINENUM) ?
+	    "if (last_in_gv && SvIV(TOPs) == IoLINES(GvIOp(last_in_gv))) {"
+	  : "if (SvTRUE(TOPs)) {");
+    runtime("\tsv_setiv(curpad[$rangeix], 1);");
+    if ($op->flags & OPf_SPECIAL) {
+	runtime("sv_setiv(curpad[$ix], 1);");
+    } else {
+	runtime("\tsv_setiv(curpad[$ix], 0);",
+		"\tsp--;",
+		sprintf("\tgoto %s;", label($op->first->false)));
+    }
+    runtime("}",
+	  qq{sv_setpv(curpad[$ix], "");},
+	    "SETs(curpad[$ix]);");
+    $know_op = 0;
+    return $op->next;
+}
+
+sub pp_flop {
+    my $op = shift;
+    default_pp($op);
+    $know_op = 0;
+    return $op->next;
+}
 
 sub enterloop {
     my $op = shift;
+    my $nextop = $op->nextop;
+    my $lastop = $op->lastop;
+    my $redoop = $op->redoop;
     $curcop->write_back;
+    debug "enterloop: pushing on cxstack" if $debug_cxstack;
     push(@cxstack, {
 	type => CXt_LOOP,
 	op => $op,
-	label => $curcop->[0]->label,
-	nextop => $op->nextop,
-	lastop => $op->lastop,
-	redoop => $op->redoop
+	"label" => $curcop->[0]->label,
+	nextop => $nextop,
+	lastop => $lastop,
+	redoop => $redoop
     });
+    $nextop->save;
+    $lastop->save;
+    $redoop->save;
     return default_pp($op);
 }
 
@@ -1047,6 +1127,7 @@ sub pp_leaveloop {
     if (!@cxstack) {
 	die "panic: leaveloop";
     }
+    debug "leaveloop: popping from cxstack" if $debug_cxstack;
     pop(@cxstack);
     return default_pp($op);
 }
@@ -1058,16 +1139,19 @@ sub pp_next {
 	$cxix = dopoptoloop();
 	if ($cxix < 0) {
 	    error('"next" used outside loop');
+	    return $op->next; # ignore the op
 	}
     } else {
 	$cxix = dopoptolabel($op->pv);
 	if ($cxix < 0) {
 	    error('Label not found at compile time for "next %s"', $op->pv);
-	    $cxix = -1; # choose nearest scope for now
+	    return $op->next; # ignore the op
 	}
     }
     default_pp($op);
-    runtime(sprintf("goto %s;", label($cxstack[$cxix]->{nextop})));
+    my $nextop = $cxstack[$cxix]->{nextop};
+    push(@bblock_todo, $nextop);
+    runtime(sprintf("goto %s;", label($nextop)));
     return $op->next;
 }
 
@@ -1078,16 +1162,19 @@ sub pp_redo {
 	$cxix = dopoptoloop();
 	if ($cxix < 0) {
 	    error('"redo" used outside loop');
+	    return $op->next; # ignore the op
 	}
     } else {
 	$cxix = dopoptolabel($op->pv);
 	if ($cxix < 0) {
 	    error('Label not found at compile time for "redo %s"', $op->pv);
-	    $cxix = -1; # choose nearest scope for now
+	    return $op->next; # ignore the op
 	}
     }
     default_pp($op);
-    runtime(sprintf("goto %s;", label($cxstack[$cxix]->{redoop})));
+    my $redoop = $cxstack[$cxix]->{redoop};
+    push(@bblock_todo, $redoop);
+    runtime(sprintf("goto %s;", label($redoop)));
     return $op->next;
 }
 
@@ -1098,22 +1185,54 @@ sub pp_last {
 	$cxix = dopoptoloop();
 	if ($cxix < 0) {
 	    error('"last" used outside loop');
+	    return $op->next; # ignore the op
 	}
     } else {
 	$cxix = dopoptolabel($op->pv);
 	if ($cxix < 0) {
 	    error('Label not found at compile time for "last %s"', $op->pv);
-	    $cxix = -1; # choose nearest scope for now
+	    return $op->next; # ignore the op
 	}
-	# XXX Add suport for last
+	# XXX Add support for "last" to leave non-loop blocks
 	if ($cxstack[$cxix]->{type} != CXt_LOOP) {
 	    error('Use of "last" for non-loop blocks is not yet implemented');
-	    $cxix = -1;
+	    return $op->next; # ignore the op
 	}
     }
     default_pp($op);
-    runtime(sprintf("goto %s;", label($cxstack[$cxix]->{lastop}->next)));
+    my $lastop = $cxstack[$cxix]->{lastop}->next;
+    push(@bblock_todo, $lastop);
+    runtime(sprintf("goto %s;", label($lastop)));
     return $op->next;
+}
+
+sub pp_subst {
+    my $op = shift;
+    write_back_lexicals();
+    write_back_stack();
+    my $sym = doop($op);
+    my $replroot = $op->pmreplroot;
+    if (ad($replroot)) {
+	runtime sprintf("if (op == ((PMOP*)(%s))->op_pmreplroot) goto %s;",
+			$sym, label($replroot));
+	$op->pmreplstart->save;
+	push(@bblock_todo, $replroot);
+    }
+    invalidate_lexicals();
+    return $op->next;
+}
+
+sub pp_substcont {
+    my $op = shift;
+    write_back_lexicals();
+    write_back_stack();
+    doop($op);
+    my $pmop = $op->other;
+    my $pmopsym = objsym($pmop);
+    runtime sprintf("if (op == ((PMOP*)(%s))->op_pmreplstart) goto %s;",
+		    $pmopsym, label($pmop->pmreplstart));
+    invalidate_lexicals();
+    return $pmop->next;
 }
 
 sub default_pp {
@@ -1133,6 +1252,9 @@ sub default_pp {
 sub compile_op {
     my $op = shift;
     my $ppname = $op->ppaddr;
+    if (exists $ignore_op{$ppname}) {
+	return $op->next;
+    }
     debug peek_stack() if $debug_stack;
     if ($debug_op) {
 	debug sprintf("%s [%s]\n",
@@ -1150,8 +1272,7 @@ sub compile_op {
 
 sub compile_bblock {
     my $op = shift;
-    my $endop;
-    #debug "compile_bblock: ", peekop($op), "\n"; # debug
+    #warn "compile_bblock: ", peekop($op), "\n"; # debug
     write_label($op);
     $know_op = 0;
     do {
@@ -1168,10 +1289,7 @@ sub cc {
     init_pp($name);
     load_pad(@padlist);
     B::Pseudoreg->new_scope;
-    if (@cxstack) {
-	warn "Warning: context stack not empty at beginning of scope\n";
-	@cxstack = ();
-    }
+    @cxstack = ();
     if ($debug_timings) {
 	warn sprintf("Basic block analysis at %s\n", timing_info);
     }
@@ -1182,7 +1300,9 @@ sub cc {
     }
     while (@bblock_todo) {
 	$op = shift @bblock_todo;
+	#warn sprintf("Considering basic block %s\n", peekop($op)); # debug
 	next if !defined($op) || !$$op || $done{$$op};
+	#warn "...compiling it\n"; # debug
 	do {
 	    $done{$$op} = 1;
 	    $op = compile_bblock($op);
@@ -1234,6 +1354,7 @@ sub cc_main {
 	# That only queues them. Now we need to generate code for them.
 	cc_recurse();
     }
+    return if $errors;
     push_init(sprintf("main_root = sym_%x;", ad(main_root)),
 	      "main_start = $start;",
 	      "curpad = AvARRAY($curpad_sym);");
@@ -1303,6 +1424,8 @@ sub compile {
 		    $debug_op = 1;
 		} elsif ($arg eq "s") {
 		    $debug_stack = 1;
+		} elsif ($arg eq "c") {
+		    $debug_cxstack = 1;
 		} elsif ($arg eq "p") {
 		    $debug_pad = 1;
 		} elsif ($arg eq "r") {
@@ -1328,6 +1451,7 @@ sub compile {
 		($ppname = $objname) =~ s/^.*?:://;
 		eval "cc_obj(qq(pp_sub_$ppname), \\&$objname)";
 		die "cc_obj(qq(pp_sub_$ppname, \\&$objname) failed: $@" if $@;
+		return if $errors;
 	    }
 	    output_boilerplate();
 	    print "\n";
