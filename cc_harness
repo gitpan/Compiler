@@ -1,0 +1,7 @@
+use Config;
+
+$libdir = "$Config{installarchlib}/CORE";
+$cccmd = sprintf("%s %s -I$libdir @ARGV %s -L$libdir -lperl %s",
+		 @Config{qw(cc ccflags ldflags libs)});
+print "$cccmd\n";
+exec $cccmd;

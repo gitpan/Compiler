@@ -1,0 +1,164 @@
+		  Perl Compiler Kit, Version alpha1
+
+		 Copyright (c) 1996, Malcolm Beattie
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of either:
+
+	a) the GNU General Public License as published by the Free
+	Software Foundation; either version 1, or (at your option) any
+	later version, or
+
+	b) the "Artistic License" which comes with this kit.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See either
+    the GNU General Public License or the Artistic License for more details.
+
+    You should have received a copy of the Artistic License with this kit,
+    in the file named "Artistic".  If not, you can get one from the Perl
+    distribution. You should also have received a copy of the GNU General
+    Public License, in the file named "Copying". If not, you can get one
+    from the Perl distribution or else write to the Free Software
+    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+INSTALLATION
+
+(1) You need perl5.002 (beta releases of 5.002 probably won't suffice).
+
+(2) You need to apply a one-line patch to perl itself if you want to
+compile and run programs with the C backend which undefine (or
+redefine) subroutines. One or two of the programs in perl's own test
+suite do this. The patch is in file op.patch. It prevents perl from
+calling free() on OPs with the magic sequence number (U16)-1. The
+compiler declares all OPs as static structures and uses that magic
+sequence number.
+
+(3) Type
+    perl Makefile.PL
+to write a personalised Makefile for your system. If you want the
+bytecode modules to support reading bytecode from strings (instead of
+just from files) then add the option
+    -DINDIRECT_BGET_MACROS
+into the middle of the definition of the CCCMD macro in the Makefile.
+Your C compiler may need to be able to cope with Standard C for this.
+I haven't tested this option yet with an old pre-Standard compiler.
+
+(4) If your platform supports dynamic loading then just type
+    make
+and you can then use
+    perl -Iblib/arch -MO=foo bar baz
+to use the compiler modules (see later for details).
+If you need/want instead to make a statically linked perl which
+contains the appropriate modules, then type
+    make bperl
+    make byteperl
+and you can then use
+    ./bperl -MO=foo bar baz
+to use the compiler modules.    
+In both cases, the byteperl executable is required for running standalone
+bytecode programs. It is *not* a standard perl+XSUB perl executable.
+
+USAGE
+
+With this release of the compiler, only the C and Bytecode backends
+are of any use for really compiling Perl programs. The file TESTS
+shows that most of the standard perl test exercise programs t/*/*.t
+work with both backends.  In any of the following examples of
+command-line invocation of perl you'll need to replace "perl" by
+    perl -Iblib/arch
+if you have built the extensions for a dynamic loading platform but
+haven't installed the extensions completely. You'll need to replace
+"perl" by
+    ./bperl
+if you have built the extensions into a statically linked perl binary.
+
+(1) To compile perl program foo.pl with the C backend, do
+    perl -MO=C foo.pl > foo.c
+Then use the cc_harness perl program to compile the resulting C source:
+    perl cc_harness -o foo foo.c
+
+If you are using a non-ANSI pre-Standard C compiler that can't handle
+pre-declaring static arrays, then add -DBROKEN_STATIC_REDECL to the
+options you use:
+    perl cc_harness -o foo -DBROKEN_STATIC_REDECL foo.c
+If you are using a non-ANSI pre-Standard C compiler that can't handle
+static initialisation of structures with union members then add
+-DBROKEN_UNION_INIT to the options you use. If you want command line
+arguments passed to your executable to be interpreted by perl (e.g. -Dx)
+then compile foo.c with -DALLOW_PERL_OPTIONS. Otherwise, all command line
+arguments passed to foo will appear directly in @ARGV.  The resulting
+executable foo is the compiled version of foo.pl. See the file NOTES for
+extra options you can pass to -MO=C.
+
+There are some constraints on the contents on foo.pl if you want to be
+able to compile it successfully. Some problems can be fixed fairly easily
+by altering foo.pl; some problems with the compiler are known to be
+straightforward to solve and I'll do so soon. There are other problems,
+however, which are more fundamental. At the moment, you have to know a
+reasonable amount about how perl itself works to discover which is which.
+The file Todo lists a number of known problems.
+
+(2) To compile foo.pl into bytecode do
+    perl -MO=Bytecode,-ofoo foo.pl
+To run the resulting bytecode file foo as a standalone program, you
+use the program byteperl which should have been built along with the
+extensions.
+    ./byteperl foo
+Any extra arguments are passed in as @ARGV; they are not interpreted
+as perl options. If you want to load chunks of bytecode into an already
+running perl program then use the -m option and investigate the
+byteload_fh and byteload_string functions exported by the B module.
+See the NOTES file for details of these and other options (including
+optimisation options and ways of getting at the intermediate "assembler"
+code that the Bytecode backend uses).
+
+(3) There are little Bourne shell scripts and perl programs to aid with
+some common operations: assemble, disassemble, run_bytecode_test,
+run_test, cc_harness, test_harness, test_harness_bytecode.
+
+(4) Walk the op tree in execution order printing terse info about each op
+    perl -MO=Terse,exec foo.pl
+
+(5) Walk the op tree in syntax order printing lengthier debug info about
+each op. You can also append ",exec" to walk in execution order, but the
+formatting is designed to look nice with Terse rather than Debug.
+    perl -MO=Debug foo.pl
+
+(5) The backend to write out C source which encodes the execution of the
+perl program in "real" C (part on-the-fly optimised C; part inlined pp
+code; part invocations of pp code functions) is CC.pm. It worked a bit
+a while ago but I've fixed plenty of other stuff since then and it's
+probably completely broken. You can't use "-MO..." to invoke it; it's
+definitely broken when an infinite loop gives apparently (but not actually)
+unreached code and it's blocking is sometimes wrong. It needs fixing up to
+do proper basic block analysis. I'll get around to it in time.
+
+BUGS
+
+Here are some things which may cause the compiler problems.
+
+The following render the compiler useless (without serious hacking):
+* Use of XSUB extensions
+* Use of the DATA filehandle (via __END__ or __DATA__ tokens)
+
+The following may give significant problems:
+* BEGIN blocks containing complex initialisation code
+* Code which is only ever referred to at runtime (e.g. via eval "..." or
+  via method calls)
+* Run-time lookups of lexical variables in "outside" closures
+
+The following may cause problems (not thoroughly tested):
+* Dependencies on whether values of some "magic" Perl variables are
+  determined at compile-time or runtime.
+* For the C backend: compile-time strings which are longer than your
+  C compiler can cope with in a single line or definition.
+* Reliance on intimate details of global destruction
+* For the Bytecode backend: high -On optimisation numbers with code
+  that has complex flow of control.
+
+There is a terser but more complete list in the Todo file.
+
+Malcolm Beattie
+12 May 1996
